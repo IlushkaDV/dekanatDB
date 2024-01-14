@@ -28,6 +28,7 @@ CREATE TABLE if not exists Специализации (
 );
 
 CREATE TABLE if not exists Активность (
+                                          ID INTEGER PRIMARY KEY,
                                           Студент_id INT,
                                           Группа_id INT,
                                           Поступление DATE,
@@ -49,6 +50,7 @@ CREATE TABLE IF NOT EXISTS Предметы (
                                         Семестр INT NOT NULL,
                                         Преподаватель_id INT,
                                         Время DATE,
+                                        ГодСеместр VARCHAR(6),
                                         UNIQUE (Группа_id, Дисциплина_id, Преподаватель_id),
                                         FOREIGN KEY (Дисциплина_id) REFERENCES Дисциплины(id),
                                         FOREIGN KEY (Группа_id) REFERENCES Группы(id),
@@ -201,6 +203,7 @@ VALUES
     (34, 1, '2027-04-01', '2027-11-10'),
     (35, 2, '2027-06-15', NULL);
 
+--9
 UPDATE Активность
 SET Отчисление = '2023-12-31'
 WHERE Студент_id = 1 AND Группа_id = 1;
@@ -209,7 +212,7 @@ SET Группа_id = 2
 WHERE Студент_id = 1 AND Группа_id = 1;
 
 
---3
+--10
 SELECT 'Преподаватель' AS Статус, Пол, COUNT(*) AS Количество
 FROM Преподаватели
 WHERE Дата_рождения BETWEEN '1960-01-01' AND '2000-12-31'
@@ -221,7 +224,7 @@ WHERE Дата_рождения BETWEEN '1990-01-01' AND '2007-12-31'
 GROUP BY Пол;
 
 
---4
+--11
 SELECT ФИО, Дата_рождения
 FROM Преподаватели
 WHERE Дата_рождения BETWEEN '1990-01-01' AND '2000-12-31'
@@ -231,7 +234,7 @@ FROM Студенты
 WHERE Дата_рождения BETWEEN '1990-01-01' AND '2000-12-31';
 
 
---5
+--12
 ALTER TABLE Предметы
     ADD COLUMN Время DATE;
 
@@ -242,7 +245,7 @@ FROM Преподаватели
          JOIN Группы ON Предметы.Группа_id = Группы.id;
 
 
---6
+--13
 SELECT Студенты.*
 FROM Студенты
          JOIN Активность ON Студенты.id = Активность.Студент_id
@@ -252,7 +255,7 @@ WHERE Группы.Номер_группы = 'Б121'
   AND (Активность.Отчисление >= '2023-01-01' OR Активность.Отчисление IS NULL);
 
 
---7
+--14
 SELECT Группы.*, Активность.Поступление, Активность.Отчисление
 FROM Студенты
          JOIN Активность ON Студенты.id = Активность.Студент_id
@@ -262,7 +265,7 @@ WHERE Студенты.id = 10
     AND (Активность.Отчисление >= '2025-01-01' OR Активность.Отчисление IS NULL));
 
 
---8
+--15
 SELECT Активность.Студент_id AS Студент_ID, Предметы.id AS Предмет_ID
 FROM Активность
          JOIN Группы ON Активность.Группа_id = Группы.id
@@ -293,7 +296,7 @@ SET Оценка = 3
 WHERE Студент_id = 3 AND Предмет_id = 4;
 
 
---9
+--16
 SELECT Дисциплины.Дисциплина, Оценки.Оценка, Оценки.Студент_id
 FROM Оценки
          JOIN Предметы ON Оценки.Предмет_id = Предметы.id
@@ -301,13 +304,15 @@ FROM Оценки
 WHERE Студент_id = 3;
 
 
---10
+--17
 SELECT Предметы.Группа_id AS Группа, Дисциплины.Дисциплина, AVG(Оценки.Оценка) AS Средний_балл
 FROM Предметы
          JOIN Оценки ON Предметы.id = Оценки.Предмет_id
          JOIN Дисциплины ON Дисциплины.id = Предметы.Дисциплина_id
 WHERE Предметы.Дисциплина_id = 4;
 
+
+--19
 CREATE TRIGGER PreventGroupDeletion
     BEFORE DELETE ON Группы
     FOR EACH ROW
@@ -316,6 +321,7 @@ BEGIN
     SELECT RAISE(ABORT, 'Нельзя удалить группу, в которой числятся/числились студенты');
 END;
 
+--20
 CREATE TRIGGER PreventSpecializationDeletion
     BEFORE DELETE ON Специализации
     FOR EACH ROW
@@ -323,5 +329,99 @@ CREATE TRIGGER PreventSpecializationDeletion
 BEGIN
     SELECT RAISE(ABORT, 'Не допускается удаление специализаций, по которым были собранны непустые группы');
 END;
+
+--21
+CREATE TRIGGER DeleteSpecializationNoGroups
+    AFTER DELETE ON Группы
+    FOR EACH ROW
+    WHEN NOT EXISTS (SELECT * FROM Группы WHERE Специализация_id = OLD.Специализация_id)
+BEGIN
+    DELETE FROM Специализации WHERE ID = OLD.Специализация_id;
+END;
+
+--22
+CREATE TRIGGER PreventDisciplineDeletion
+    BEFORE DELETE ON Дисциплины
+    FOR EACH ROW
+    WHEN EXISTS (SELECT * FROM Предметы WHERE Предметы.Дисциплина_id = OLD.id)
+BEGIN
+    SELECT RAISE(ABORT, 'Не допускается удаление дисциплин, связанных с существующими предметами');
+END;
+
+--23
+CREATE TRIGGER PreventDuplicateTeachers
+    BEFORE INSERT ON Предметы
+    WHEN EXISTS (
+        SELECT *
+        FROM Предметы
+        WHERE NEW.Группа_id = Группа_id
+          AND NEW.ГодСеместр = ГодСеместр
+          AND NEW.Дисциплина_id = Дисциплина_id
+          AND NEW.Преподаватель_id <> Предметы.Преподаватель_id
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'Нельзя назначить разным преподавателям одинаковые дисциплины в одной и той же группе');
+END;
+
+--24
+CREATE TRIGGER PreventDuplicateStudents
+    BEFORE INSERT ON Активность
+    WHEN EXISTS (
+        SELECT *
+        FROM Активность
+        WHERE NEW.Студент_id = Студент_id
+          AND NEW.Отчисление IS NULL
+          AND Активность.Отчисление IS NULL
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'Один студент не может числиться одновременно в разных группах.');
+END;
+
+--25
+CREATE TRIGGER UpdateGroupOnExpulsion
+    BEFORE INSERT ON Активность
+BEGIN
+    UPDATE Активность
+    SET Отчисление = DATETIME('now')
+    WHERE Студент_id = NEW.Студент_id AND Отчисление IS NULL AND id <> NEW.id;
+END;
+
+--26
+CREATE TRIGGER PreventGradeWithoutGroup
+    BEFORE INSERT ON Оценки
+    WHEN NOT EXISTS (
+        SELECT *
+        FROM Активность
+                 JOIN Предметы ON Активность.Группа_id = Предметы.Группа_id
+        WHERE Активность.Студент_id = NEW.Студент_id
+          AND Предметы.ID = NEW.Предмет_id
+          AND Активность.Отчисление IS NULL
+    )
+BEGIN
+    SELECT RAISE(ABORT, 'Студент не числится в группе, связанной с данным предметом');
+END;
+
+--27
+CREATE TRIGGER DeletePreviousGrades
+    AFTER INSERT ON Оценки
+BEGIN
+    DELETE FROM Оценки
+    WHERE Студент_id = NEW.Студент_id
+      AND Предмет_id = NEW.Предмет_id
+      -- Уникальный идентификатор
+      AND (ROWID != NEW.ROWID OR ROWID IS NULL);
+END;
+
+--28
+CREATE TRIGGER PreventPastGradeTime
+    BEFORE INSERT ON Оценки
+    FOR EACH ROW
+BEGIN
+    SELECT
+        CASE
+            WHEN NEW.Время > DATETIME('now') THEN
+                RAISE (ABORT, 'Не допускается проставление оценки перед текущим моментом времени.')
+            END;
+END
 
 
